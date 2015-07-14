@@ -1,0 +1,17 @@
+<lifecycles>
+    <lifecycle>
+        <id>generate-sources</id>
+        <phases>
+            <phase>
+                <id>generate-sources</id>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>generate</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </phase>
+        </phases>
+    </lifecycle>
+</lifecycles>
