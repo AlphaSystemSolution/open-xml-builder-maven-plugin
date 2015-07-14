@@ -8,6 +8,7 @@
     </parent>
     <groupId>com.alphasystem.openxml</groupId>
     <artifactId>openxml-builder-maven-plugin</artifactId>
+    <packaging>maven-plugin</packaging>
     <build>
         <plugins>
             <plugin>
@@ -52,5 +53,4 @@
             <version>3.2.2</version>
         </dependency>
     </dependencies>
-    <packaging>maven-plugin</packaging>
 </project>
