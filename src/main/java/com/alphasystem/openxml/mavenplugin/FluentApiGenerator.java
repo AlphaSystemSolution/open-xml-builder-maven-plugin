@@ -30,6 +30,8 @@ public class FluentApiGenerator {
 
     public static final String GET_OBJECT_METHOD_NAME = "getObject";
 
+    public static final String SET_OBJECT_METHOD_NAME = "setObject";
+
     public static final String PARAM_NAME = "value";
 
     public static final String FIELD_NAME = "object";
@@ -150,9 +152,9 @@ public class FluentApiGenerator {
         return type;
     }
 
-    private JFieldVar addBuilderFactoryStaicField(Class<?> returnTypeClass,
-                                                  String fieldName, String builderMethodName, String valueMethodName,
-                                                  JExpression arg) {
+    private JFieldVar addBuilderFactoryStaticField(Class<?> returnTypeClass,
+                                                   String fieldName, String builderMethodName, String valueMethodName,
+                                                   JExpression arg) {
         JType returnType = parseType(codeModel, returnTypeClass.getName());
         return builderFactoryClass.field(PUBLIC | STATIC | FINAL, returnType,
                 fieldName, invoke(builderMethodName).invoke(valueMethodName)
@@ -164,7 +166,7 @@ public class FluentApiGenerator {
                 JcEnumeration.class.getName());
         String name = enumConstant.name();
         String fieldName = format("JC_%s", name);
-        JFieldVar field = addBuilderFactoryStaicField(Jc.class, fieldName,
+        JFieldVar field = addBuilderFactoryStaticField(Jc.class, fieldName,
                 "getJcBuilder", "withVal", jcEnumerationClass.staticRef(name));
         field.javadoc().add(
                 format("Constant for %s.%s", jcEnumerationClass.name(), name));
@@ -200,13 +202,13 @@ public class FluentApiGenerator {
             openXmlBuilderClass = codeModel._class(PUBLIC | ABSTRACT,
                     SUPER_CALSS_FQN, CLASS);
             openXmlBuilderClass.generify("T");
-            openXmlBuilderClass.field(PUBLIC | STATIC | FINAL,
-                    parseType(codeModel, ObjectFactory.class.getName()),
-                    OBJECT_FACTORY_FIELD_NAME,
-                    parseClass(codeModel, Context.class.getName())
-                            .staticInvoke("getWmlObjectFactory"));
-            addMethod(PUBLIC | ABSTRACT, parseType(codeModel, "T"),
-                    GET_OBJECT_METHOD_NAME, openXmlBuilderClass, null);
+            openXmlBuilderClass.field(PUBLIC | STATIC | FINAL, parseType(codeModel, ObjectFactory.class.getName()),
+                    OBJECT_FACTORY_FIELD_NAME, parseClass(codeModel, Context.class.getName()).staticInvoke("getWmlObjectFactory"));
+            final JType t = parseType(codeModel, "T");
+            addMethod(PUBLIC | ABSTRACT, t, GET_OBJECT_METHOD_NAME, openXmlBuilderClass, null);
+            final JMethod setMethod = addMethod(PUBLIC | ABSTRACT, parseType(codeModel, "void"), SET_OBJECT_METHOD_NAME,
+                    openXmlBuilderClass, null);
+            setMethod.param(t, FIELD_NAME);
         } catch (JClassAlreadyExistsException e) {
         }
     }
@@ -217,16 +219,16 @@ public class FluentApiGenerator {
                     BUILDER_FACTORY_CLASS_FQN, CLASS);
 
             String withValMethod = "withVal";
-            addBuilderFactoryStaicField(BooleanDefaultTrue.class,
+            addBuilderFactoryStaticField(BooleanDefaultTrue.class,
                     "BOOLEAN_DEFAULT_TRUE_TRUE",
                     "getBooleanDefaultTrueBuilder", withValMethod, TRUE);
-            addBuilderFactoryStaicField(BooleanDefaultTrue.class,
+            addBuilderFactoryStaticField(BooleanDefaultTrue.class,
                     "BOOLEAN_DEFAULT_TRUE_FALSE",
                     "getBooleanDefaultTrueBuilder", withValMethod, FALSE);
-            addBuilderFactoryStaicField(BooleanDefaultFalse.class,
+            addBuilderFactoryStaticField(BooleanDefaultFalse.class,
                     "BOOLEAN_DEFAULT_FALSE_TRUE",
                     "getBooleanDefaultFalseBuilder", withValMethod, TRUE);
-            addBuilderFactoryStaicField(BooleanDefaultFalse.class,
+            addBuilderFactoryStaticField(BooleanDefaultFalse.class,
                     "BOOLEAN_DEFAULT_FALSE_FALSE",
                     "getBooleanDefaultFalseBuilder", withValMethod, FALSE);
 

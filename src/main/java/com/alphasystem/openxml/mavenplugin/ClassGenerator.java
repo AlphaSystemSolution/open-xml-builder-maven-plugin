@@ -43,18 +43,28 @@ public class ClassGenerator {
         this.srcClass = srcClass;
         this.superClassName = superClassName;
         this.builderFactoryClass = builderFactoryClass;
-        javaObjectFields = new ArrayList<Field>();
-        openXmlObjectFields = new ArrayList<Field>();
-        collectionTypeObjectFields = new ArrayList<Field>();
+        javaObjectFields = new ArrayList<>();
+        openXmlObjectFields = new ArrayList<>();
+        collectionTypeObjectFields = new ArrayList<>();
     }
 
     private static void addConstructor(Class<?> srcClass, JDefinedClass _class) {
         JMethod constructor = _class.constructor(PUBLIC);
         constructor.javadoc().add("Initialize the underlying object.");
         JBlock constructorBody = constructor.body();
-        String createMethodName = getCreateMethodName(srcClass);
-        constructorBody.assign(FIELD_TYPE_REF,
-                invoke(OBJECT_FACTORY_REF, createMethodName));
+        constructorBody.directStatement("this(null);");
+    }
+
+    private static void addOverloadedConstructor(JCodeModel codeModel, Class<?> srcClass, JDefinedClass _class) {
+        JMethod constructor = _class.constructor(PUBLIC);
+        final JDocComment javadoc = constructor.javadoc();
+        javadoc.addParam(FIELD_NAME).add("the given object");
+        javadoc.add("Initialize the builder with given object.");
+        constructor.param(parseType(codeModel, srcClass.getName()), FIELD_NAME);
+        JBlock constructorBody = constructor.body();
+        final JBlock ifBlock = constructorBody._if(FIELD_TYPE_REF.eq(JExpr._null()))._then();
+        ifBlock.assign(FIELD_TYPE_REF, invoke(OBJECT_FACTORY_REF, getCreateMethodName(srcClass)));
+        constructorBody.assign(_this().ref(FIELD_NAME), FIELD_TYPE_REF);
     }
 
     private static String getCreateMethodName(Class<?> srcClass) {
@@ -106,12 +116,17 @@ public class ClassGenerator {
                 BigInteger.class, _class);
     }
 
-    private void addBuilderGetMethod(JClass _class, String builderGetMethodName) {
-        JType returnType = parseType(codeModel, _class.fullName());
-        JMethod method = addMethod(PUBLIC | STATIC, returnType,
-                builderGetMethodName, builderFactoryClass, null);
+    private void addBuilderGetMethod(JType returnType, String builderGetMethodName) {
+        JMethod method = addMethod(PUBLIC | STATIC, returnType, builderGetMethodName, builderFactoryClass, null);
         JBlock body = method.body();
         body._return(_new(returnType));
+    }
+
+    private void addBuilderOverloadedGetMethod(JType returnType, JType paramType, String builderGetMethodName) {
+        JMethod method = addMethod(PUBLIC | STATIC, returnType, builderGetMethodName, builderFactoryClass, null);
+        method.param(paramType, FIELD_NAME);
+        JBlock body = method.body();
+        body._return(_new(returnType).arg(FIELD_TYPE_REF));
     }
 
     private void addCollectionDelegateMethod(Class<?> srcClass,
@@ -162,11 +177,17 @@ public class ClassGenerator {
 
     @SuppressWarnings("unchecked")
     private void addGetObjectMethod(JDefinedClass _class, Class<?> srcClass) {
-        JMethod method = addMethod(PUBLIC,
-                parseType(codeModel, srcClass.getName()),
+        JMethod method = addMethod(PUBLIC, parseType(codeModel, srcClass.getName()),
                 GET_OBJECT_METHOD_NAME, _class, new Class[]{Override.class});
         JBlock block = method.body();
         block._return(FIELD_TYPE_REF);
+    }
+
+    private void addSetObjectMethod(JDefinedClass _class, Class<?> srcClass) {
+        JMethod method = addMethod(PUBLIC, parseType(codeModel, "void"), SET_OBJECT_METHOD_NAME, _class, new Class[]{Override.class});
+        method.param(parseType(codeModel, srcClass.getName()), FIELD_NAME);
+        final JBlock body = method.body();
+        body.assign(_this().ref(FIELD_NAME), FIELD_TYPE_REF);
     }
 
     private String addJavaDocComments(JMethod method, Method setterMthod) {
@@ -251,8 +272,11 @@ public class ClassGenerator {
             // add Constructor
             addConstructor(srcClass, _class);
 
+            addOverloadedConstructor(codeModel, srcClass, _class);
+
             // override abstract method
             addGetObjectMethod(_class, srcClass);
+            addSetObjectMethod(_class, srcClass);
 
             // initBuildObjectMethod(_class);
 
@@ -264,8 +288,11 @@ public class ClassGenerator {
             finalizeBuildObjectMethod();
 
             String builderGetMethodName = format("get%s", _class.name());
+            JType returnType = parseType(codeModel, _class.fullName());
             // add "get" method in builder class
-            addBuilderGetMethod(_class, builderGetMethodName);
+            addBuilderGetMethod(returnType, builderGetMethodName);
+            final JType paramType = parseType(codeModel, srcClass.getName());
+            addBuilderOverloadedGetMethod(returnType, paramType, builderGetMethodName);
         } catch (JClassAlreadyExistsException e) {
         }
     }
@@ -303,7 +330,7 @@ public class ClassGenerator {
         JConditional ifBlock = block._if(paramRef.ne(_null()));
         JBlock ifBodyBlock = ifBlock._then();
         ifBodyBlock.invoke(FIELD_TYPE_REF, setterMethodName).arg(paramRef);
-        block._return(JExpr._this());
+        block._return(_this());
     }
 
     private void populateFields(JDefinedClass _class) {
