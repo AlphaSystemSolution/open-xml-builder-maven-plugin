@@ -48,7 +48,7 @@ public class ClassGenerator {
         collectionTypeObjectFields = new ArrayList<>();
     }
 
-    private static void addConstructor(Class<?> srcClass, JDefinedClass _class) {
+    private static void addConstructor(JDefinedClass _class) {
         JMethod constructor = _class.constructor(PUBLIC);
         constructor.javadoc().add("Initialize the underlying object.");
         JBlock constructorBody = constructor.body();
@@ -62,7 +62,7 @@ public class ClassGenerator {
         javadoc.add("Initialize the builder with given object.");
         constructor.param(parseType(codeModel, srcClass.getName()), FIELD_NAME);
         JBlock constructorBody = constructor.body();
-        final JBlock ifBlock = constructorBody._if(FIELD_TYPE_REF.eq(JExpr._null()))._then();
+        final JBlock ifBlock = constructorBody._if(FIELD_TYPE_REF.eq(_null()))._then();
         ifBlock.assign(FIELD_TYPE_REF, invoke(OBJECT_FACTORY_REF, getCreateMethodName(srcClass)));
         constructorBody.assign(_this().ref(FIELD_NAME), FIELD_TYPE_REF);
     }
@@ -79,7 +79,7 @@ public class ClassGenerator {
     }
 
     private static List<Field> getFields(Class<?> srcClass) {
-        List<Field> fields = new ArrayList<Field>();
+        List<Field> fields = new ArrayList<>();
         getFields(srcClass, fields);
         Class<?> superclass = srcClass.getSuperclass();
         while (superclass != null
@@ -105,15 +105,13 @@ public class ClassGenerator {
         }
     }
 
-    private static boolean isAssignableFrom(Class<?> superClass,
-                                            Class<?> subClass) {
+    private static boolean isAssignableFrom(Class<?> superClass, Class<?> subClass) {
         return superClass.isAssignableFrom(subClass);
     }
 
-    private void addBigIntegerConvienceMethod(String withMethodName,
-                                              Method setterMthod, JDefinedClass _class) {
-        addConvienceMethod(withMethodName, setterMthod, String.class,
-                BigInteger.class, _class);
+    private void addBigIntegerOverloadedMethod(String withMethodName, Method setterMethod, JDefinedClass _class) {
+        addOverloadedMethod(withMethodName, setterMethod, String.class, BigInteger.class, _class);
+        addBigIntegerOverloadedLongMethod(withMethodName, setterMethod, _class);
     }
 
     private void addBuilderGetMethod(JType returnType, String builderGetMethodName) {
@@ -146,32 +144,45 @@ public class ClassGenerator {
                     .narrow(collectionTypeClass);
             _then.decl(narrow, localVariable).init(
                     invoke(FIELD_TYPE_REF, getContentMethod.getName()));
-            _then.staticInvoke(
-                    parseClass(codeModel, Collections.class.getName()),
+            _then.staticInvoke(parseClass(codeModel, Collections.class.getName()),
                     "addAll").arg(ref(localVariable)).arg(paramRef);
             body._return(_this());
         } catch (Exception e) {
+            // igonre
         }
     }
 
-    private void addConvienceMethod(String withMethodName, Method setterMthod,
-                                    Class<?> setterMethodParamType, Class<?> valueClass,
-                                    JDefinedClass _class) {
-        // method.param(setterMethodParamType, PARAM_NAME);
+    private void addOverloadedMethod(String withMethodName, Method setterMethod, Class<?> setterMethodParamType,
+                                     Class<?> valueClass, JDefinedClass _class) {
         JType thisType = parseType(codeModel, _class.name());
-        JMethod method = addMethod(PUBLIC, thisType, withMethodName, _class,
-                null);
+        JMethod method = addMethod(PUBLIC, thisType, withMethodName, _class, null);
         method.param(setterMethodParamType, PARAM_NAME);
 
-        String setterMethodName = addJavaDocComments(method, setterMthod);
+        String setterMethodName = addJavaDocComments(method, setterMethod);
 
         JBlock block = method.body();
-        JFieldRef paramRef = JExpr.ref(PARAM_NAME);
-        JConditional ifBlock = block._if(paramRef.ne(JExpr._null()));
+        JFieldRef paramRef = ref(PARAM_NAME);
+        JConditional ifBlock = block._if(paramRef.ne(_null()));
         JBlock ifBodyBlock = ifBlock._then();
-        JInvocation initValue = JExpr._new(
-                parseType(codeModel, valueClass.getName())).arg(paramRef);
+        JInvocation initValue = _new(parseType(codeModel, valueClass.getName())).arg(paramRef);
         ifBodyBlock.invoke(FIELD_TYPE_REF, setterMethodName).arg(initValue);
+        block._return(_this());
+    }
+
+    private void addBigIntegerOverloadedLongMethod(String withMethodName, Method setterMethod, JDefinedClass _class){
+        JType thisType = parseType(codeModel, _class.name());
+        JMethod method = addMethod(PUBLIC, thisType, withMethodName, _class, null);
+        final JVar param = method.param(Long.class, PARAM_NAME);
+        String setterMethodName = addJavaDocComments(method, setterMethod);
+
+        JBlock block = method.body();
+        JFieldRef paramRef = ref(PARAM_NAME);
+        JConditional ifBlock = block._if(paramRef.ne(_null()));
+        JBlock ifBodyBlock = ifBlock._then();
+
+        final JClass valueClass = parseClass(codeModel, BigInteger.class.getName());
+        final JInvocation arg = valueClass.staticInvoke("valueOf").arg(param);
+        ifBodyBlock.invoke(FIELD_TYPE_REF, setterMethodName).arg(arg);
         block._return(_this());
     }
 
@@ -183,6 +194,7 @@ public class ClassGenerator {
         block._return(FIELD_TYPE_REF);
     }
 
+    @SuppressWarnings({"unchecked"})
     private void addSetObjectMethod(JDefinedClass _class, Class<?> srcClass) {
         JMethod method = addMethod(PUBLIC, parseType(codeModel, "void"), SET_OBJECT_METHOD_NAME, _class, new Class[]{Override.class});
         method.param(parseType(codeModel, srcClass.getName()), FIELD_NAME);
@@ -213,12 +225,12 @@ public class ClassGenerator {
     private void addMethods(JDefinedClass _class) {
         if (!javaObjectFields.isEmpty()) {
             for (Field field : javaObjectFields) {
-                processField(field, srcClass, _class);
+                processField(field, _class);
             }
         }
         if (!openXmlObjectFields.isEmpty()) {
             for (Field field : openXmlObjectFields) {
-                processField(field, srcClass, _class);
+                processField(field, _class);
             }
         }
         if (!collectionTypeObjectFields.isEmpty()) {
@@ -253,7 +265,7 @@ public class ClassGenerator {
     }
 
     public void generate() {
-        JDefinedClass _class = null;
+        JDefinedClass _class;
         String builderClassFqn = getBuilderClassFqn(srcClass);
         try {
             _class = codeModel._class(PUBLIC, builderClassFqn, CLASS);
@@ -270,7 +282,7 @@ public class ClassGenerator {
             _class.field(PRIVATE, srcClass, FIELD_NAME);
 
             // add Constructor
-            addConstructor(srcClass, _class);
+            addConstructor(_class);
 
             addOverloadedConstructor(codeModel, srcClass, _class);
 
@@ -280,7 +292,7 @@ public class ClassGenerator {
 
             // initBuildObjectMethod(_class);
 
-            populateFields(_class);
+            populateFields();
 
             // add fluent API methods
             addMethods(_class);
@@ -294,13 +306,14 @@ public class ClassGenerator {
             final JType paramType = parseType(codeModel, srcClass.getName());
             addBuilderOverloadedGetMethod(returnType, paramType, builderGetMethodName);
         } catch (JClassAlreadyExistsException e) {
+            // ignore
         }
     }
 
+    @SuppressWarnings({"unused"})
     void initBuildObjectMethod(JDefinedClass _class) {
         JType thisType = parseType(codeModel, _class.name());
-        buildObjectMethod = addMethod(PUBLIC, thisType, "buildObject", _class,
-                null);
+        buildObjectMethod = addMethod(PUBLIC, thisType, "buildObject", _class, null);
     }
 
     private void initMethod(JMethod method, Method setterMthod,
@@ -311,15 +324,13 @@ public class ClassGenerator {
                     "<<<<<<<<<<<<<<<<<<<<<<< %s:%s:%s >>>>>>>>>>>>>>>>>>>>>>>",
                     _class.name(), setterMthod.getName(),
                     setterMethodParamType.getName()));
-        } else if (setterMethodParamType.getPackage().getName()
-                .equals("org.docx4j.wml")) {
-            ClassGenerator generator = new ClassGenerator(codeModel,
-                    setterMethodParamType, superClassName, builderFactoryClass);
+        } else if (setterMethodParamType.getPackage().getName().equals("org.docx4j.wml")) {
+            ClassGenerator generator = new ClassGenerator(codeModel, setterMethodParamType, superClassName, builderFactoryClass);
             generator.generate();
         }
         String name = setterMethodParamType.getName();
         if (name.equals(BigInteger.class.getName())) {
-            addBigIntegerConvienceMethod(method.name(), setterMthod, _class);
+            addBigIntegerOverloadedMethod(method.name(), setterMthod, _class);
         }
         method.param(setterMethodParamType, PARAM_NAME);
 
@@ -333,7 +344,7 @@ public class ClassGenerator {
         block._return(_this());
     }
 
-    private void populateFields(JDefinedClass _class) {
+    private void populateFields() {
         List<Field> fields = getFields(srcClass);
         if (fields != null && !fields.isEmpty()) {
             for (Field field : fields) {
@@ -354,8 +365,7 @@ public class ClassGenerator {
         }
     }
 
-    private void processCollectionField(Field field, Class<?> srcClass,
-                                        JDefinedClass _class) {
+    private void processCollectionField(Field field, Class<?> srcClass, JDefinedClass _class) {
         Method srcMethod = getGetterMethod(field);
         if (srcMethod == null) {
             return;
@@ -364,23 +374,24 @@ public class ClassGenerator {
         String fieldName = field.getName();
         String methodName = srcMethodName.replaceFirst("^get", "add");
         String paramName = format("%ss", fieldName);
-        ParameterizedType genericType = (ParameterizedType) field
-                .getGenericType();
-        Class<?> collectionTypeClass = null;
+        ParameterizedType genericType = (ParameterizedType) field.getGenericType();
+        Class<?> collectionTypeClass;
         try {
-            collectionTypeClass = (Class<?>) genericType
-                    .getActualTypeArguments()[0];
+            collectionTypeClass = (Class<?>) genericType.getActualTypeArguments()[0];
         } catch (Exception e) {
             err.println(srcClass.getName() + " : " + fieldName);
             return;
         }
-        addCollectionDelegateMethod(field.getDeclaringClass(), _class,
-                srcMethodName, methodName, paramName, fieldName,
+        final Class<?> declaringClass = field.getDeclaringClass();
+        addCollectionDelegateMethod(declaringClass, _class, srcMethodName, methodName, paramName, fieldName,
                 collectionTypeClass);
+        if (collectionTypeClass.getPackage().getName().equals("org.docx4j.wml")) {
+            ClassGenerator generator = new ClassGenerator(codeModel, collectionTypeClass, superClassName, builderFactoryClass);
+            generator.generate();
+        }
     }
 
-    private void processField(Field field, Class<?> srcClass,
-                              JDefinedClass _class) {
+    private void processField(Field field, JDefinedClass _class) {
         JType thisType = parseType(codeModel, _class.name());
         Method srcMethod = getSetterMethod(field);
         if (srcMethod == null) {
@@ -388,8 +399,7 @@ public class ClassGenerator {
         }
         String srcMethodName = srcMethod.getName();
         String withMethodName = srcMethodName.replaceFirst("^set", "with");
-        JMethod method = addMethod(PUBLIC, thisType, withMethodName, _class,
-                null);
+        JMethod method = addMethod(PUBLIC, thisType, withMethodName, _class, null);
         initMethod(method, srcMethod, _class);
 
         if (buildObjectMethod != null) {

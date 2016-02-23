@@ -44,13 +44,14 @@ public class FluentApiGenerator {
 
     private static final String BASE_PACKAGE_NAME = "com.alphasystem.openxml.builder";
 
-    private static final String SUPER_CALSS_FQN = format("%s.OpenXmlBuilder",
-            BASE_PACKAGE_NAME);
+    private static final String BUILDER_PACKAGE_NAME = format("%s.wml", BASE_PACKAGE_NAME);
 
-    private static final String BUILDER_FACTORY_CLASS_NAME = "OpenXmlBuilderFactory";
+    private static final String SUPER_CALSS_FQN = format("%s.OpenXmlBuilder", BASE_PACKAGE_NAME);
 
-    private static final String BUILDER_FACTORY_CLASS_FQN = format("%s.%s",
-            BASE_PACKAGE_NAME, BUILDER_FACTORY_CLASS_NAME);
+    private static final String BUILDER_FACTORY_CLASS_NAME = "WmlBuilderFactory";
+
+    private static final String BUILDER_FACTORY_CLASS_FQN = format("%s.%s", BUILDER_PACKAGE_NAME, BUILDER_FACTORY_CLASS_NAME);
+
     private JCodeModel codeModel;
     private Class<?>[] srcClasses;
     private List<String> ignoreMethods = new ArrayList<String>();
@@ -63,8 +64,7 @@ public class FluentApiGenerator {
     }
 
     public static String getBuilderClassFqn(Class<?> srcClass) {
-        return format("%s.wml.%sBuilder", BASE_PACKAGE_NAME,
-                getClassName(srcClass));
+        return format("%s.%sBuilder", BUILDER_PACKAGE_NAME, getClassName(srcClass));
     }
 
     public static String getClassName(Class<?> srcClass) {
@@ -192,8 +192,7 @@ public class FluentApiGenerator {
     }
 
     protected void generate(Class<?> srcClass) {
-        ClassGenerator classGenerator = new ClassGenerator(codeModel, srcClass,
-                openXmlBuilderClass.fullName(), builderFactoryClass);
+        ClassGenerator classGenerator = new ClassGenerator(codeModel, srcClass, openXmlBuilderClass.fullName(), builderFactoryClass);
         classGenerator.generate();
     }
 

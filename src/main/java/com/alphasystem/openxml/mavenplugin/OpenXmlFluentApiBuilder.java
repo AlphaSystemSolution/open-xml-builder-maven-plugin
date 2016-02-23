@@ -44,8 +44,7 @@ public class OpenXmlFluentApiBuilder extends AbstractMojo {
 
     private void generate() {
         JCodeModel codeModel = new JCodeModel();
-        FluentApiGenerator apiGenerator = new FluentApiGenerator(codeModel,
-                srcClasses);
+        FluentApiGenerator apiGenerator = new FluentApiGenerator(codeModel, srcClasses);
         apiGenerator.generate();
         try {
             codeModel.build(targetDirectory);
