@@ -4,6 +4,8 @@
 package com.alphasystem.openxml.mavenplugin;
 
 import com.sun.codemodel.*;
+import org.docx4j.wml.CTSdtRow;
+import org.docx4j.wml.SdtBlock;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -39,18 +41,8 @@ public class ClassGenerator {
         return format("create%s%s", createMethodNamePrefix, srcClass.getSimpleName());
     }
 
-    private static void addBuilderGetterMethod(JDefinedClass _class, JCodeModel codeModel, JDefinedClass builderClass,
-                                               Class<?> paramType, int mods) {
-        String methodName = format("get%s", _class.name());
-        JType returnType = parseType(codeModel, _class.name());
-
-        JMethod method = addMethod(mods, returnType, methodName, builderClass);
-        method.body()._return(_new(returnType));
-
-        method = addMethod(mods, returnType, methodName, builderClass);
-        method.param(paramType, FIELD_NAME);
-        JBlock body = method.body();
-        body._return(_new(returnType).arg(FIELD_TYPE_REF));
+    private static String getTargetMethodName(boolean collectionType, String srcMethodName) {
+        return collectionType ? srcMethodName.replaceFirst("^get", "add") : srcMethodName.replaceFirst("^set", "with");
     }
 
     private final JCodeModel codeModel;
@@ -88,12 +80,17 @@ public class ClassGenerator {
             // extends with "OpenXmlBuilder"
             thisClass._extends(superClass);
 
-            // add the field
-            // thisClass.field(PRIVATE, srcClass, FIELD_NAME);
-
             // add Constructor
             addConstructor();
             addOverloadedConstructor();
+
+            List<String> classesToIgnore = new ArrayList<>();
+            classesToIgnore.add(SdtBlock.class.getName());
+            classesToIgnore.add(CTSdtRow.class.getName());
+            // TODO: hack to avoid compilation error, need to figure out later
+            if (!classesToIgnore.contains(srcClass.getName())) {
+                addCopyConstructor();
+            }
 
             // implement "createObject" method
             final JMethod method = thisClass.method(PROTECTED, srcClass, CREATE_OBJECT_METHOD_NAME);
@@ -104,7 +101,7 @@ public class ClassGenerator {
 
             if (enclosingClass == null) {
                 // add "get" method in builder class
-                addBuilderGetterMethod(thisClass, codeModel, builderFactoryClass, srcClass, PUBLIC | STATIC);
+                addBuilderGetterMethod(PUBLIC | STATIC);
             }
         } catch (JClassAlreadyExistsException e) {
             // ignore
@@ -129,28 +126,67 @@ public class ClassGenerator {
         constructorBody.invoke("super").arg(FIELD_TYPE_REF);
     }
 
+    private void addCopyConstructor() {
+        JMethod constructor = thisClass.constructor(PUBLIC);
+        final JVar srcParam = constructor.param(srcClass, "src");
+        final JVar targetParam = constructor.param(srcClass, "target");
+        final JBlock body = constructor.body();
+        body.invoke("this").arg(targetParam);
+        body._if(srcParam.eq(_null()))._then()._throw(_new(parseClass(codeModel, NullPointerException.class))
+                .arg(lit("src cannot be null.")));
+        JInvocation invocation = null;
+        for (Map.Entry<String, PropertyInfo> entry : classInfo.entrySet()) {
+            invocation = copyValues(entry.getValue(), invocation, srcParam);
+        }
+        if (invocation != null) {
+            body.add(invocation);
+        }
+    }
+
+    private JInvocation copyValues(PropertyInfo propertyInfo, JInvocation invocation, JVar srcParam) {
+        final Field field = propertyInfo.getField();
+        final boolean collectionType = isCollectionType(field);
+        Class<?> paramType = getParamType(field, collectionType);
+        if (paramType == null) {
+            return null;
+        }
+        Method srcMethod = collectionType ? propertyInfo.getReadMethod() : propertyInfo.getWriteMethod();
+        if (srcMethod == null) {
+            throw new RuntimeException(format("Unable to find source method for field {%s} in class {%s}",
+                    propertyInfo.getFieldName(), thisClass.name()));
+        }
+        String targetMethodName = getTargetMethodName(collectionType, srcMethod.getName());
+        JInvocation methodToInvoke = srcParam.invoke(propertyInfo.getReadMethod().getName());
+        if (collectionType) {
+            methodToInvoke = methodToInvoke.invoke("toArray");
+            if (!paramType.getSimpleName().equals("Object")) {
+                methodToInvoke = methodToInvoke.arg(_new(parseClass(codeModel, paramType).array()));
+            }
+        }
+        if (invocation == null) {
+            invocation = invoke(targetMethodName).arg(methodToInvoke);
+        } else {
+            invocation = invocation.invoke(targetMethodName).arg(methodToInvoke);
+        }
+        return invocation;
+    }
+
     private void processField(PropertyInfo propertyInfo) {
         final Field field = propertyInfo.getField();
         final boolean collectionType = isCollectionType(field);
         Method srcMethod = collectionType ? propertyInfo.getReadMethod() : propertyInfo.getWriteMethod();
         if (srcMethod == null) {
-            throw new RuntimeException(format("Unable to find source method for field {%s} in class {%s}", propertyInfo.getFieldName(),
-                    thisClass.name()));
+            throw new RuntimeException(format("Unable to find source method for field {%s} in class {%s}",
+                    propertyInfo.getFieldName(), thisClass.name()));
         }
-        String srcMethodName = srcMethod.getName();
         // name of builder method
         // if it is a collection type and src method name is "getContent" then the target method name will be "addContent"
         // if it is object type and src method name is "getContent" then the target method name will be "withContent"
-        String targetMethodName = collectionType ? srcMethodName.replaceFirst("^get", "add") :
-                srcMethodName.replaceFirst("^set", "with");
+        String targetMethodName = getTargetMethodName(collectionType, srcMethod.getName());
 
-        Class<?> paramType = field.getType();
-        if (collectionType) {
-            paramType = getCollectionGenericType(field);
-            if (paramType == null) {
-                err.println(format("No collection type for field {%s} for class {%s}", propertyInfo.getFieldName(), thisClass.name()));
-                return;
-            }
+        Class<?> paramType = getParamType(field, collectionType);
+        if (paramType == null) {
+            return;
         }
 
         JMethod method = addMethod(PUBLIC, thisClass, targetMethodName, thisClass);
@@ -345,6 +381,19 @@ public class ClassGenerator {
         block._return(_this());
     }
 
+    private void addBuilderGetterMethod(int mods) {
+        String methodName = format("get%s", thisClass.name());
+        JType returnType = parseType(codeModel, thisClass.name());
+
+        JMethod method = addMethod(mods, returnType, methodName, builderFactoryClass);
+        method.body()._return(_new(returnType));
+
+        method = addMethod(mods, returnType, methodName, builderFactoryClass);
+        method.param(srcClass, FIELD_NAME);
+        JBlock body = method.body();
+        body._return(_new(returnType).arg(FIELD_TYPE_REF));
+    }
+
     private String addJavaDocComments(JMethod method, Method setterMethod) {
         JDocComment javadoc = method.javadoc();
         String setterMethodName = setterMethod.getName();
@@ -354,4 +403,15 @@ public class ClassGenerator {
         return setterMethodName;
     }
 
+    private Class<?> getParamType(Field field, boolean collectionType) {
+        Class<?> paramType = field.getType();
+        if (collectionType) {
+            paramType = getCollectionGenericType(field);
+            if (paramType == null) {
+                err.println(format("No collection type for field {%s} for class {%s}", field.getName(), thisClass.name()));
+                return null;
+            }
+        }
+        return paramType;
+    }
 }
