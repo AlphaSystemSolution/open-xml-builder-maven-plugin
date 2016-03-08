@@ -132,14 +132,12 @@ public class ClassGenerator {
         final JVar targetParam = constructor.param(srcClass, "target");
         final JBlock body = constructor.body();
         body.invoke("this").arg(targetParam);
-        body._if(srcParam.eq(_null()))._then()._throw(_new(parseClass(codeModel, NullPointerException.class))
-                .arg(lit("src cannot be null.")));
         JInvocation invocation = null;
         for (Map.Entry<String, PropertyInfo> entry : classInfo.entrySet()) {
             invocation = copyValues(entry.getValue(), invocation, srcParam);
         }
         if (invocation != null) {
-            body.add(invocation);
+            body._if(srcParam.ne(_null()))._then().add(invocation);
         }
     }
 
