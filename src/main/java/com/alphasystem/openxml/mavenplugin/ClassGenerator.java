@@ -128,16 +128,26 @@ public class ClassGenerator {
 
     private void addCopyConstructor() {
         JMethod constructor = thisClass.constructor(PUBLIC);
+
         final JVar srcParam = constructor.param(srcClass, "src");
         final JVar targetParam = constructor.param(srcClass, "target");
+
+        final JDocComment javadoc = constructor.javadoc();
+        javadoc.add("Copies values fom <code>src</code> into <code>target</code>. Values of <code>target</code> will be overridden by the values <code>src</code>.");
+        javadoc.addParam(srcParam).add("source object");
+        javadoc.addParam(targetParam).add("target object");
+        javadoc.addThrows(NullPointerException.class).add("If <code>src</code> is null.");
+
         final JBlock body = constructor.body();
         body.invoke("this").arg(targetParam);
+        body._if(srcParam.eq(_null()))._then()._throw(_new(parseClass(codeModel, NullPointerException.class)).arg("source object is null."));
         JInvocation invocation = null;
         for (Map.Entry<String, PropertyInfo> entry : classInfo.entrySet()) {
             invocation = copyValues(entry.getValue(), invocation, srcParam);
         }
+
         if (invocation != null) {
-            body._if(srcParam.ne(_null()))._then().add(invocation);
+            body.add(invocation);
         }
     }
 
