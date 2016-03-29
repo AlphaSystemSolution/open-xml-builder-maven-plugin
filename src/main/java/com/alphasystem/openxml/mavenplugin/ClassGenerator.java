@@ -404,7 +404,7 @@ public class ClassGenerator {
         JDocComment javadoc = method.javadoc();
         String setterMethodName = setterMethod.getName();
         javadoc.add(format("Calls <code>%s</code> method.", setterMethodName));
-        javadoc.addParam("value");
+        javadoc.addParam("value").add("Value to set");
         javadoc.addReturn().add("reference to this");
         return setterMethodName;
     }
