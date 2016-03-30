@@ -4,6 +4,7 @@
 package com.alphasystem.openxml.mavenplugin;
 
 import com.sun.codemodel.*;
+import org.docx4j.wml.BooleanDefaultTrue;
 import org.docx4j.wml.CTSdtRow;
 import org.docx4j.wml.SdtBlock;
 
@@ -71,7 +72,7 @@ public class ClassGenerator {
             if (enclosingClass == null) {
                 thisClass = codeModel._class(PUBLIC, getBuilderClassFqn(srcClass), CLASS);
             } else {
-                thisClass = enclosingClass._class(PUBLIC | STATIC, format("%sBuilder", srcClass.getSimpleName()), CLASS);
+                thisClass = enclosingClass._class(PUBLIC | STATIC, getInnerBuilderClassName(srcClass), CLASS);
             }
             thisClass.metadata = srcClass;
             thisClass.javadoc().add(format("Fluent API builder for <code>%s</code>.", srcClass.getName()));
@@ -139,22 +140,77 @@ public class ClassGenerator {
 
         final JBlock body = constructor.body();
         body.invoke("this").arg(targetParam);
+        final JBlock ifBlock = body._if(srcParam.ne(_null()))._then();
+
         JInvocation invocation = null;
         for (Map.Entry<String, PropertyInfo> entry : classInfo.entrySet()) {
-            invocation = copyValues(entry.getValue(), invocation, srcParam);
+            final PropertyInfo propertyInfo = entry.getValue();
+
+            final Field field = propertyInfo.getField();
+            final boolean collectionType = isCollectionType(field);
+            Class<?> paramType = getParamType(field, collectionType);
+            if (collectionType || paramType == null) {
+                continue;
+            }
+
+            final JVar jVar = copyValue(propertyInfo, ifBlock, srcParam, paramType);
+            invocation = setValue(propertyInfo, jVar, invocation);
         }
 
         if (invocation != null) {
-            body._if(srcParam.ne(_null()))._then().add(invocation);
+            ifBlock.add(invocation);
         }
     }
 
+    private JVar copyValue(PropertyInfo propertyInfo, JBlock ifBlock, JVar srcParam, Class<?> paramType) {
+        final JClass thisType = parseClass(codeModel, paramType);
+        final boolean sourcePackage = paramType.getPackage().getName().equals(sourcePackageName);
+        final String paramTypeName = paramType.getName();
+        final boolean innerType = paramTypeName.contains("$");
+        final String fieldName = propertyInfo.getFieldName();
+
+        String builderFactoryMethodToInvoke = null;
+        if (paramTypeName.equals(BooleanDefaultTrue.class.getName())) {
+            builderFactoryMethodToInvoke = CLONE_BOOLEAN_DEFAULT_TRUE_METHOD_NAME;
+        } else if (paramTypeName.equals(BigInteger.class.getName())) {
+            builderFactoryMethodToInvoke = CLONE_BIG_INTEGER_METHOD_NAME;
+        }
+
+        final String readMethodName = propertyInfo.getReadMethod().getName();
+        JInvocation methodToInvoke = srcParam.invoke(readMethodName);
+        if (builderFactoryMethodToInvoke != null) {
+            return ifBlock.decl(thisType, fieldName, builderFactoryClass.staticInvoke(builderFactoryMethodToInvoke).arg(methodToInvoke));
+        } else if (!paramType.isEnum() && sourcePackage) {
+            String builderClassFqn = getBuilderClassFqn(paramType);
+            if (innerType) {
+                builderClassFqn = format("%s.%s", thisClass.name(), getInnerBuilderClassName(paramType));
+            }
+
+            final JClass builderClass = parseClass(codeModel, builderClassFqn);
+            return ifBlock.decl(thisType, fieldName, _new(builderClass).arg(methodToInvoke).arg(FIELD_TYPE_REF.invoke(readMethodName)).invoke(GET_OBJECT_METHOD_NAME));
+        } else {
+            return ifBlock.decl(thisType, fieldName, methodToInvoke);
+        }
+    }
+
+    private JInvocation setValue(PropertyInfo propertyInfo, JVar var, JInvocation invocation) {
+        Method srcMethod = propertyInfo.getWriteMethod();
+        String targetMethodName = getTargetMethodName(false, srcMethod.getName());
+        if (invocation == null) {
+            invocation = invoke(targetMethodName).arg(var);
+        } else {
+            invocation = invocation.invoke(targetMethodName).arg(var);
+        }
+        return invocation;
+    }
+
+    @SuppressWarnings("unused")
     private JInvocation copyValues(PropertyInfo propertyInfo, JInvocation invocation, JVar srcParam) {
         final Field field = propertyInfo.getField();
         final boolean collectionType = isCollectionType(field);
         Class<?> paramType = getParamType(field, collectionType);
-        if (paramType == null) {
-            return null;
+        if (collectionType || paramType == null) {
+            return invocation;
         }
         Method srcMethod = collectionType ? propertyInfo.getReadMethod() : propertyInfo.getWriteMethod();
         if (srcMethod == null) {
@@ -208,6 +264,8 @@ public class ClassGenerator {
         if (!paramType.isPrimitive() && !collectionType) {
             block = body._if(param.ne(_null()))._then();
         }
+        final boolean sourcePackage = paramType.getPackage().getName().equals(sourcePackageName);
+        final boolean innerType = paramType.getName().contains("$");
         if (collectionType) {
             invokeMethod(body, ADD_CONTENT_METHOD_NAME, FIELD_TYPE_REF.invoke(propertyInfo.getReadMethod().getName()), param);
         } else {
@@ -222,10 +280,10 @@ public class ClassGenerator {
 
         // generates builder for any class which is part of our source package
         // if param type is ENUM then we do not do any thing else
-        if (!paramType.isEnum() && paramType.getPackage().getName().equals(sourcePackageName)) {
+        if (!paramType.isEnum() && sourcePackage) {
             // we are about to generate builder for any field with data type of our source package
             // but if the field is non collection type and an inner class then we will generate inner builder
-            if (!collectionType && paramType.getName().contains("$")) {
+            if (!collectionType && innerType) {
                 addInnerBuilder(paramType, targetMethodName, propertyInfo);
             } else {
                 ClassGenerator generator = new ClassGenerator(codeModel, null, paramType, superClassName,

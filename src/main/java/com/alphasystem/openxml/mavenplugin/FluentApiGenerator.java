@@ -10,6 +10,7 @@ import org.docx4j.wml.*;
 
 import java.io.File;
 import java.io.IOException;
+import java.math.BigInteger;
 import java.util.Collections;
 import java.util.List;
 
@@ -45,6 +46,8 @@ public class FluentApiGenerator {
     private static final String SUPER_CALSS_FQN = format("%s.OpenXmlBuilder", BASE_PACKAGE_NAME);
     private static final String BUILDER_FACTORY_CLASS_NAME = "WmlBuilderFactory";
     private static final String BUILDER_FACTORY_CLASS_FQN = format("%s.%s", BUILDER_PACKAGE_NAME, BUILDER_FACTORY_CLASS_NAME);
+    public static final String CLONE_BOOLEAN_DEFAULT_TRUE_METHOD_NAME = "cloneBooleanDefaultTrue";
+    public static final String CLONE_BIG_INTEGER_METHOD_NAME = "cloneBigInteger";
 
     public static void main(String[] args) {
         JCodeModel codeModel = new JCodeModel();
@@ -73,6 +76,10 @@ public class FluentApiGenerator {
 
     public static String getBuilderClassFqn(Class<?> srcClass) {
         return format("%s.%sBuilder", BUILDER_PACKAGE_NAME, getClassName(srcClass));
+    }
+
+    public static String getInnerBuilderClassName(Class<?> srcClass){
+        return format("%sBuilder", srcClass.getSimpleName());
     }
 
     private JCodeModel codeModel;
@@ -204,10 +211,36 @@ public class FluentApiGenerator {
             }
 
             // private constructor
-            builderFactoryClass.constructor(PRIVATE).javadoc()
-                    .add("Do not let anyone instantiate this class.");
+            builderFactoryClass.constructor(PRIVATE).javadoc().add("Do not let anyone instantiate this class.");
+
+            addCloneBooleanDefaultTrueMethod();
+            addCloneBigIntegerMethod();;
         } catch (JClassAlreadyExistsException e) {
             // ignore
         }
+    }
+
+    private void addCloneBooleanDefaultTrueMethod() {
+        final JClass type = parseClass(codeModel, BooleanDefaultTrue.class);
+        final JMethod method = addMethod(PUBLIC | STATIC, type, CLONE_BOOLEAN_DEFAULT_TRUE_METHOD_NAME, builderFactoryClass);
+        final JVar source = method.param(type, "source");
+        final JBlock body = method.body();
+        final JVar target = body.decl(type, "target", _null());
+        final JBlock ifBlock = body._if(source.ne(_null()))._then();
+        final JInvocation left = _new(parseClass(codeModel, "BooleanDefaultTrueBuilder")).arg(source).arg(target);
+        ifBlock.assign(target, left.invoke(GET_OBJECT_METHOD_NAME));
+        body._return(target);
+    }
+
+    private void addCloneBigIntegerMethod(){
+        final JClass type = parseClass(codeModel, BigInteger.class);
+        final JMethod method = addMethod(PUBLIC | STATIC, type, CLONE_BIG_INTEGER_METHOD_NAME, builderFactoryClass);
+        final JVar source = method.param(type, "source");
+        final JBlock body = method.body();
+        final JVar target = body.decl(type, "target", _null());
+        final JBlock ifBlock = body._if(source.ne(_null()))._then();
+        final JInvocation invocation = type.staticInvoke("valueOf").arg(source.invoke("longValue"));
+        ifBlock.assign(target, invocation);
+        body._return(target);
     }
 }
