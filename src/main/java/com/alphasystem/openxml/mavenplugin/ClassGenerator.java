@@ -10,6 +10,7 @@ import org.docx4j.wml.SdtBlock;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.lang.reflect.Type;
 import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -134,7 +135,7 @@ public class ClassGenerator {
         final JVar targetParam = constructor.param(srcClass, "target");
 
         final JDocComment javadoc = constructor.javadoc();
-        javadoc.add("Copies values fom <code>src</code> into <code>target</code>. Values of <code>target</code> will be overridden by the values <code>src</code>.");
+        javadoc.add("Copies values fom <code>src</code> into <code>target</code>. Values of <code>target</code> will be overridden by the values from <code>src</code>.");
         javadoc.addParam(srcParam).add("source object");
         javadoc.addParam(targetParam).add("target object");
 
@@ -149,12 +150,30 @@ public class ClassGenerator {
             final Field field = propertyInfo.getField();
             final boolean collectionType = isCollectionType(field);
             Class<?> paramType = getParamType(field, collectionType);
-            if (collectionType || paramType == null) {
-                continue;
+            if (collectionType) {
+                final Type genericType = field.getGenericType();
+                final String typeName = genericType.getTypeName();
+                if (typeName.contains("?")) {
+                    continue;
+                }
+                final String methodName = propertyInfo.getReadMethod().getName();
+                final String paramTypeName = paramType.getName();
+                final JClass thisType = parseClass(codeModel, typeName);
+                final JVar jVar = ifBlock.decl(thisType, propertyInfo.getFieldName(), srcParam.invoke(methodName));
+                final JForEach forEach = ifBlock.forEach(parseClass(codeModel, paramType), "o", jVar);
+                final JVar var = forEach.var();
+                JBlock forBody = forEach.body();
+                final String targetMethodName = getTargetMethodName(true, propertyInfo.getReadMethod().getName());
+                if (Object.class.getName().equals(paramTypeName)) {
+                    forBody.invoke(targetMethodName).arg(builderFactoryClass.staticInvoke(CLONE_OBJECT_METHOD_NAME).arg(var));
+                } else {
+                    String builderClassFqn = getBuilderClassFqn(paramType);
+                    final JInvocation builderArg = _new(parseClass(codeModel, builderClassFqn)).arg(var).arg(_null()).invoke(GET_OBJECT_METHOD_NAME);
+                    forBody.invoke(targetMethodName).arg(builderArg);
+                }
+            } else {
+                invocation = copyValue(propertyInfo, ifBlock, srcParam, paramType, invocation);
             }
-
-            final JVar jVar = copyValue(propertyInfo, ifBlock, srcParam, paramType);
-            invocation = setValue(propertyInfo, jVar, invocation);
         }
 
         if (invocation != null) {
@@ -162,7 +181,7 @@ public class ClassGenerator {
         }
     }
 
-    private JVar copyValue(PropertyInfo propertyInfo, JBlock ifBlock, JVar srcParam, Class<?> paramType) {
+    private JInvocation copyValue(PropertyInfo propertyInfo, JBlock ifBlock, JVar srcParam, Class<?> paramType, JInvocation invocation) {
         final JClass thisType = parseClass(codeModel, paramType);
         final boolean sourcePackage = paramType.getPackage().getName().equals(sourcePackageName);
         final String paramTypeName = paramType.getName();
@@ -178,22 +197,22 @@ public class ClassGenerator {
 
         final String readMethodName = propertyInfo.getReadMethod().getName();
         JInvocation methodToInvoke = srcParam.invoke(readMethodName);
+        JExpression var = methodToInvoke;
         if (builderFactoryMethodToInvoke != null) {
-            return ifBlock.decl(thisType, fieldName, builderFactoryClass.staticInvoke(builderFactoryMethodToInvoke).arg(methodToInvoke));
+            var = builderFactoryClass.staticInvoke(builderFactoryMethodToInvoke).arg(methodToInvoke);
         } else if (!paramType.isEnum() && sourcePackage) {
-            String builderClassFqn = getBuilderClassFqn(paramType);
-            if (innerType) {
-                builderClassFqn = format("%s.%s", thisClass.name(), getInnerBuilderClassName(paramType));
-            }
-
+            String builderClassFqn = getBuilderClassFqn(paramType, thisClass.name(), innerType);
             final JClass builderClass = parseClass(codeModel, builderClassFqn);
-            return ifBlock.decl(thisType, fieldName, _new(builderClass).arg(methodToInvoke).arg(FIELD_TYPE_REF.invoke(readMethodName)).invoke(GET_OBJECT_METHOD_NAME));
-        } else {
-            return ifBlock.decl(thisType, fieldName, methodToInvoke);
+            final JVar localVar = ifBlock.decl(thisType, fieldName, methodToInvoke);
+            final JBlock localIf = ifBlock._if(localVar.ne(_null()))._then();
+            localIf.assign(localVar, _new(builderClass).arg(localVar).arg(FIELD_TYPE_REF.invoke(readMethodName)).invoke(GET_OBJECT_METHOD_NAME));
+            var = localVar;
         }
+        invocation = setValue(propertyInfo, var, invocation);
+        return invocation;
     }
 
-    private JInvocation setValue(PropertyInfo propertyInfo, JVar var, JInvocation invocation) {
+    private JInvocation setValue(PropertyInfo propertyInfo, JExpression var, JInvocation invocation) {
         Method srcMethod = propertyInfo.getWriteMethod();
         String targetMethodName = getTargetMethodName(false, srcMethod.getName());
         if (invocation == null) {

@@ -10,6 +10,7 @@ import org.docx4j.wml.*;
 
 import java.io.File;
 import java.io.IOException;
+import java.lang.reflect.Constructor;
 import java.math.BigInteger;
 import java.util.Collections;
 import java.util.List;
@@ -48,6 +49,7 @@ public class FluentApiGenerator {
     private static final String BUILDER_FACTORY_CLASS_FQN = format("%s.%s", BUILDER_PACKAGE_NAME, BUILDER_FACTORY_CLASS_NAME);
     public static final String CLONE_BOOLEAN_DEFAULT_TRUE_METHOD_NAME = "cloneBooleanDefaultTrue";
     public static final String CLONE_BIG_INTEGER_METHOD_NAME = "cloneBigInteger";
+    public static final String CLONE_OBJECT_METHOD_NAME = "cloneObject";
 
     public static void main(String[] args) {
         JCodeModel codeModel = new JCodeModel();
@@ -78,8 +80,13 @@ public class FluentApiGenerator {
         return format("%s.%sBuilder", BUILDER_PACKAGE_NAME, getClassName(srcClass));
     }
 
-    public static String getInnerBuilderClassName(Class<?> srcClass){
+    public static String getInnerBuilderClassName(Class<?> srcClass) {
         return format("%sBuilder", srcClass.getSimpleName());
+    }
+
+    public static String getBuilderClassFqn(Class<?> srcClass, String enclosingClassName, boolean innerType) {
+        return innerType ? format("%s.%s", enclosingClassName, getInnerBuilderClassName(srcClass)) :
+                getBuilderClassFqn(srcClass);
     }
 
     private JCodeModel codeModel;
@@ -214,7 +221,8 @@ public class FluentApiGenerator {
             builderFactoryClass.constructor(PRIVATE).javadoc().add("Do not let anyone instantiate this class.");
 
             addCloneBooleanDefaultTrueMethod();
-            addCloneBigIntegerMethod();;
+            addCloneBigIntegerMethod();
+            addCloneObjectMethod();
         } catch (JClassAlreadyExistsException e) {
             // ignore
         }
@@ -232,7 +240,7 @@ public class FluentApiGenerator {
         body._return(target);
     }
 
-    private void addCloneBigIntegerMethod(){
+    private void addCloneBigIntegerMethod() {
         final JClass type = parseClass(codeModel, BigInteger.class);
         final JMethod method = addMethod(PUBLIC | STATIC, type, CLONE_BIG_INTEGER_METHOD_NAME, builderFactoryClass);
         final JVar source = method.param(type, "source");
@@ -242,5 +250,46 @@ public class FluentApiGenerator {
         final JInvocation invocation = type.staticInvoke("valueOf").arg(source.invoke("longValue"));
         ifBlock.assign(target, invocation);
         body._return(target);
+    }
+
+    private void addCloneObjectMethod() {
+        final JClass type = parseClass(codeModel, Object.class);
+        final JMethod method = addMethod(PUBLIC | STATIC, type, CLONE_OBJECT_METHOD_NAME, builderFactoryClass);
+        final JVar source = method.param(type, "source");
+        final JBlock body = method.body();
+        body._if(source.eq(_null()))._then()._return(source);
+        final JClass classType = parseClass(codeModel, Class.class);
+        final JVar objectClass = body.decl(FINAL, classType, "objectClass", source.invoke("getClass"));
+        final JBlock ifBlock = body._if(objectClass.invoke("getPackage").invoke("getName").invoke("equals").arg(lit("org.docx4j.wml")))._then();
+        final JVar builderClass = ifBlock.decl(classType, "builderClass", _null());
+        final JClass stringType = parseClass(codeModel, String.class);
+        final JVar builderPackageName = ifBlock.decl(FINAL, stringType, "builderPackageName", lit("com.alphasystem.openxml.builder.wml"));
+        final JVar builderFqn = ifBlock.decl(stringType, "builderFqn", stringType.staticInvoke("format")
+                .arg(lit("%s.%sBuilder")).arg(builderPackageName).arg(objectClass.invoke("getSimpleName")));
+
+        JTryBlock tryBlock = ifBlock._try();
+        tryBlock.body().assign(builderClass, classType.staticInvoke("forName").arg(builderFqn));
+        JCatchBlock catchBlock = tryBlock._catch(parseClass(codeModel, ClassNotFoundException.class));
+        JVar ex = catchBlock.param("ex");
+        catchBlock.body().directStatement("// ignore");
+
+        final JBlock block = ifBlock._if(builderClass.eq(_null()))._then();
+        block.directStatement("System.err.printf(\"Error creating builder: %s\\n\", objectClass.getName());");
+        block._return(source);
+
+        tryBlock = ifBlock._try();
+        final JBlock tryBody = tryBlock.body();
+        final JVar constructor = tryBody.decl(FINAL, parseClass(codeModel, Constructor.class), "constructor",
+                builderClass.invoke("getConstructor").arg(objectClass).arg(objectClass));
+        final JVar builder = tryBody.decl(FINAL, openXmlBuilderClass, "builder",
+                cast(openXmlBuilderClass, constructor.invoke("newInstance").arg(source).arg(_null())));
+        tryBody._return(builder.invoke(GET_OBJECT_METHOD_NAME));
+        catchBlock = tryBlock._catch(parseClass(codeModel, Exception.class));
+        catchBlock.param("ex");
+        final JBlock catchBody = catchBlock.body();
+        catchBody.directStatement("System.err.printf(\"Error creating builder: %s\\n\", ex.getMessage());");
+        catchBody._return(source);
+
+        body._return(source);
     }
 }
