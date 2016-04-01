@@ -11,6 +11,7 @@ import org.docx4j.wml.*;
 import java.io.File;
 import java.io.IOException;
 import java.lang.reflect.Constructor;
+import java.lang.reflect.Field;
 import java.math.BigInteger;
 import java.util.Collections;
 import java.util.List;
@@ -49,6 +50,7 @@ public class FluentApiGenerator {
     private static final String BUILDER_FACTORY_CLASS_FQN = format("%s.%s", BUILDER_PACKAGE_NAME, BUILDER_FACTORY_CLASS_NAME);
     public static final String CLONE_BOOLEAN_DEFAULT_TRUE_METHOD_NAME = "cloneBooleanDefaultTrue";
     public static final String CLONE_BIG_INTEGER_METHOD_NAME = "cloneBigInteger";
+    public static final String CLONE_BOOLEAN_METHOD_NAME = "cloneBoolean";
     public static final String CLONE_OBJECT_METHOD_NAME = "cloneObject";
 
     public static void main(String[] args) {
@@ -222,6 +224,7 @@ public class FluentApiGenerator {
 
             addCloneBooleanDefaultTrueMethod();
             addCloneBigIntegerMethod();
+            addCloneBooleanMethod();
             addCloneObjectMethod();
         } catch (JClassAlreadyExistsException e) {
             // ignore
@@ -237,6 +240,31 @@ public class FluentApiGenerator {
         final JBlock ifBlock = body._if(source.ne(_null()))._then();
         final JInvocation left = _new(parseClass(codeModel, "BooleanDefaultTrueBuilder")).arg(source).arg(target);
         ifBlock.assign(target, left.invoke(GET_OBJECT_METHOD_NAME));
+        body._return(target);
+    }
+
+    private void addCloneBooleanMethod() {
+        final JClass type = parseClass(codeModel, Boolean.class);
+        final JMethod method = addMethod(PUBLIC | STATIC, type, CLONE_BOOLEAN_METHOD_NAME, builderFactoryClass);
+        final JVar source = method.param(parseClass(codeModel, Object.class), "source");
+        final JVar fieldName = method.param(parseClass(codeModel, String.class), "fieldName");
+        final JBlock body = method.body();
+        final JVar target = body.decl(type, "target", _null());
+        final JBlock ifBlock = body._if(source.ne(_null()))._then();
+
+        final JTryBlock tryBlock = ifBlock._try();
+        final JBlock tryBody = tryBlock.body();
+        final JVar field = tryBody.decl(FINAL, parseClass(codeModel, Field.class), "field", source.invoke("getClass")
+                .invoke("getDeclaredField").arg(fieldName));
+        tryBody.add(field.invoke("setAccessible").arg(lit(true)));
+        tryBody.assign(target, cast(type, field.invoke("get").arg(source)));
+
+        final JCatchBlock catchBlock = tryBlock._catch(parseClass(codeModel, Exception.class));
+        final JVar ex = catchBlock.param("ex");
+        catchBlock.body().add(ex.invoke("printStackTrace"));
+
+
+
         body._return(target);
     }
 
@@ -270,11 +298,12 @@ public class FluentApiGenerator {
         JTryBlock tryBlock = ifBlock._try();
         tryBlock.body().assign(builderClass, classType.staticInvoke("forName").arg(builderFqn));
         JCatchBlock catchBlock = tryBlock._catch(parseClass(codeModel, ClassNotFoundException.class));
-        JVar ex = catchBlock.param("ex");
+        catchBlock.param("ex");
         catchBlock.body().directStatement("// ignore");
 
         final JBlock block = ifBlock._if(builderClass.eq(_null()))._then();
-        block.directStatement("System.err.printf(\"Error creating builder: %s\\n\", objectClass.getName());");
+        final JClass systemClass = parseClass(codeModel, System.class);
+        block.add(systemClass.staticRef("err").invoke("printf").arg("Error creating builder: %s\n").arg(objectClass.invoke("getName")));
         block._return(source);
 
         tryBlock = ifBlock._try();
@@ -285,9 +314,9 @@ public class FluentApiGenerator {
                 cast(openXmlBuilderClass, constructor.invoke("newInstance").arg(source).arg(_null())));
         tryBody._return(builder.invoke(GET_OBJECT_METHOD_NAME));
         catchBlock = tryBlock._catch(parseClass(codeModel, Exception.class));
-        catchBlock.param("ex");
+        final JVar ex = catchBlock.param("ex");
         final JBlock catchBody = catchBlock.body();
-        catchBody.directStatement("System.err.printf(\"Error creating builder: %s\\n\", ex.getMessage());");
+        catchBody.add(systemClass.staticRef("err").invoke("printf").arg("Error creating builder: %s\n").arg(ex.invoke("getMessage")));
         catchBody._return(source);
 
         body._return(source);

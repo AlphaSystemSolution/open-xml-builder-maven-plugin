@@ -188,18 +188,16 @@ public class ClassGenerator {
         final boolean innerType = paramTypeName.contains("$");
         final String fieldName = propertyInfo.getFieldName();
 
-        String builderFactoryMethodToInvoke = null;
-        if (paramTypeName.equals(BooleanDefaultTrue.class.getName())) {
-            builderFactoryMethodToInvoke = CLONE_BOOLEAN_DEFAULT_TRUE_METHOD_NAME;
-        } else if (paramTypeName.equals(BigInteger.class.getName())) {
-            builderFactoryMethodToInvoke = CLONE_BIG_INTEGER_METHOD_NAME;
-        }
-
         final String readMethodName = propertyInfo.getReadMethod().getName();
         JInvocation methodToInvoke = srcParam.invoke(readMethodName);
-        JExpression var = methodToInvoke;
-        if (builderFactoryMethodToInvoke != null) {
-            var = builderFactoryClass.staticInvoke(builderFactoryMethodToInvoke).arg(methodToInvoke);
+        JExpression var;
+
+        if (paramTypeName.equals(BooleanDefaultTrue.class.getName())) {
+            var = builderFactoryClass.staticInvoke(CLONE_BOOLEAN_DEFAULT_TRUE_METHOD_NAME).arg(methodToInvoke);
+        } else if (paramTypeName.equals(Boolean.class.getName())) {
+            var = builderFactoryClass.staticInvoke(CLONE_BOOLEAN_METHOD_NAME).arg(srcParam).arg(lit(fieldName));
+        } else if (paramTypeName.equals(BigInteger.class.getName())) {
+            var = builderFactoryClass.staticInvoke(CLONE_BIG_INTEGER_METHOD_NAME).arg(methodToInvoke);
         } else if (!paramType.isEnum() && sourcePackage) {
             String builderClassFqn = getBuilderClassFqn(paramType, thisClass.name(), innerType);
             final JClass builderClass = parseClass(codeModel, builderClassFqn);
@@ -207,7 +205,10 @@ public class ClassGenerator {
             final JBlock localIf = ifBlock._if(localVar.ne(_null()))._then();
             localIf.assign(localVar, _new(builderClass).arg(localVar).arg(FIELD_TYPE_REF.invoke(readMethodName)).invoke(GET_OBJECT_METHOD_NAME));
             var = localVar;
+        } else {
+            var = methodToInvoke;
         }
+
         invocation = setValue(propertyInfo, var, invocation);
         return invocation;
     }
