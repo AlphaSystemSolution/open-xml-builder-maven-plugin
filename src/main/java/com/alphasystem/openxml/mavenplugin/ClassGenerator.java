@@ -157,7 +157,7 @@ public class ClassGenerator {
                     continue;
                 }
                 final String methodName = propertyInfo.getReadMethod().getName();
-                final String paramTypeName = paramType.getName();
+                final String paramTypeName = (paramType == null) ? null : paramType.getName();
                 final JClass thisType = parseClass(codeModel, typeName);
                 final JVar jVar = ifBlock.decl(thisType, propertyInfo.getFieldName(), srcParam.invoke(methodName));
                 final JForEach forEach = ifBlock.forEach(parseClass(codeModel, paramType), "o", jVar);
@@ -306,11 +306,116 @@ public class ClassGenerator {
             if (!collectionType && innerType) {
                 addInnerBuilder(paramType, targetMethodName, propertyInfo);
             } else {
-                ClassGenerator generator = new ClassGenerator(codeModel, null, paramType, superClassName,
-                        sourcePackageName, builderFactoryClass);
-                generator.generate();
+                addOverloadMethod(propertyInfo, collectionType, targetMethodName, paramType);
+                generateChildBuilder(paramType);
             }
         }
+    }
+
+    /**
+     * Add overload method for any collection or non-collection OpenXML property which has one and only one field.
+     *
+     * @param propertyInfo     parent propertyInfo
+     * @param collectionType   flag to indicate whether current property is collection based
+     * @param targetMethodName name of target method to invoke
+     * @param paramType        type of current property
+     */
+    private void addOverloadMethod(PropertyInfo propertyInfo, boolean collectionType, String targetMethodName,
+                                   Class<?> paramType) {
+        final Map<String, PropertyInfo> map = ReflectionUtils.inspectClass(paramType);
+        if (map.size() == 1) {
+            PropertyInfo childPropertyInfo = null;
+            for (Map.Entry<String, PropertyInfo> entry : map.entrySet()) {
+                childPropertyInfo = entry.getValue();
+                break;
+            }
+            final Field childField = childPropertyInfo.getField();
+            final String childBuilderClassFqn = getBuilderClassFqn(paramType);
+            final boolean childCollectionType = isCollectionType(childField);
+            Class<?> childType = getParamType(childField, childCollectionType);
+            String childPackageName = (childType == null) ? null : childType.getPackage().getName();
+            final boolean generateCollectionOverload = childPackageName != null && !childPackageName.equals(sourcePackageName)
+                    && !childType.getName().equals(Object.class.getName());
+            if (collectionType) {
+                if (generateCollectionOverload) {
+                    addOverloadedCollectionMethod(targetMethodName, childPropertyInfo, childType, childBuilderClassFqn);
+                }
+            } else {
+                if (childCollectionType) {
+                    if (generateCollectionOverload) {
+                        final String targetMethodName1 = getTargetMethodName(false, childPropertyInfo.getWriteMethod().getName());
+                        System.out.println(format("<<<<< %s: %s : %s : %s : %s : %s : %s : %s >>>>>", thisClass.fullName(),
+                                propertyInfo.getFieldName(), paramType.getName(), childPropertyInfo.getFieldName(),
+                                childType.getName(), childBuilderClassFqn, targetMethodName, targetMethodName1));
+                    }
+                } else {
+                    addOverloadedMethod(propertyInfo, targetMethodName, childPropertyInfo, childType, childBuilderClassFqn);
+                }
+            }
+        }
+    }
+
+    /**
+     * Add overload method for any collection OpenXML property which has one and only one field.
+     *
+     * @param targetMethodName     name of target method to invoke
+     * @param childPropertyInfo    propertyInfo of current property
+     * @param childType            type of current property
+     * @param childBuilderClassFqn builder fully qualified name of current property
+     */
+    private void addOverloadedCollectionMethod(String targetMethodName, PropertyInfo childPropertyInfo,
+                                               Class<?> childType, String childBuilderClassFqn) {
+        final String targetMethodName1 = getTargetMethodName(false, childPropertyInfo.getWriteMethod().getName());
+        final JMethod method1 = addMethod(PUBLIC, thisClass, targetMethodName, thisClass);
+        JVar param1;
+        JClass jClass = parseClass(codeModel, childType);
+        if (BigInteger.class.getName().equals(childType.getName())) {
+            jClass = parseClass(codeModel, Long.class);
+            param1 = method1.varParam(jClass, childPropertyInfo.getFieldName());
+        } else {
+            param1 = method1.varParam(jClass, childPropertyInfo.getFieldName());
+        }
+        final JBlock body1 = method1.body();
+        final JBlock ifBlock1 = body1._if(invoke(HAS_CONTENT_MEHOD_NAME).arg(param1))._then();
+        final JForEach jForEach = ifBlock1.forEach(jClass, "o", param1);
+        final JBlock forBody = jForEach.body();
+        forBody.add(invoke(targetMethodName).arg(_new(parseClass(codeModel, childBuilderClassFqn))
+                .invoke(targetMethodName1).arg(jForEach.var()).invoke(GET_OBJECT_METHOD_NAME)));
+        body1._return(_this());
+    }
+
+    /**
+     * Add overload method for any non-collection OpenXML property which has one and only one field.
+     *
+     * @param propertyInfo         parent propertyInfo
+     * @param targetMethodName     name of target method to invoke
+     * @param childPropertyInfo    propertyInfo of current property
+     * @param childType            type of current property
+     * @param childBuilderClassFqn builder fully qualified name of current property
+     */
+    private void addOverloadedMethod(PropertyInfo propertyInfo, String targetMethodName, PropertyInfo childPropertyInfo,
+                                     Class<?> childType, String childBuilderClassFqn) {
+        final String targetMethodName1 = getTargetMethodName(false, childPropertyInfo.getWriteMethod().getName());
+        // add method in current builder
+        final JMethod method = addMethod(PUBLIC, thisClass, targetMethodName, thisClass);
+        JVar param;
+        if (BigInteger.class.getName().equals(childType.getName())) {
+            param = method.param(parseClass(codeModel, Long.class), childPropertyInfo.getFieldName());
+        } else {
+            param = method.param(parseClass(codeModel, childType), childPropertyInfo.getFieldName());
+        }
+        final JBlock body = method.body();
+        final JBlock ifBlock = body._if(param.ne(_null()))._then();
+        final JInvocation invocation = _new(parseClass(codeModel, childBuilderClassFqn))
+                .invoke(targetMethodName1).arg(param).invoke(GET_OBJECT_METHOD_NAME);
+        ifBlock.add(FIELD_TYPE_REF.invoke(propertyInfo.getWriteMethod().getName()).arg(invocation));
+        body._return(_this());
+    }
+
+    private void generateChildBuilder(Class<?> paramType) {
+        ClassGenerator generator = new ClassGenerator(codeModel, null, paramType, superClassName, sourcePackageName,
+                builderFactoryClass);
+        generator.generate();
     }
 
     private void addInnerBuilder(Class<?> paramType, String targetMethodName, PropertyInfo pi) {
