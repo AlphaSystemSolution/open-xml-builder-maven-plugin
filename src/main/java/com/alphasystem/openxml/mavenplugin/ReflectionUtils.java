@@ -1,7 +1,5 @@
 package com.alphasystem.openxml.mavenplugin;
 
-import org.apache.commons.lang.StringUtils;
-
 import javax.xml.bind.annotation.XmlTransient;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -13,6 +11,7 @@ import java.util.Map;
 
 import static java.lang.String.format;
 import static java.lang.System.err;
+import static org.apache.commons.lang3.StringUtils.capitalize;
 
 /**
  * @author sali
@@ -40,7 +39,7 @@ public final class ReflectionUtils {
         if (fieldName.startsWith("_")) {
             fieldName = fieldName.substring(1);
         }
-        fieldName = StringUtils.capitalize(fieldName);
+        fieldName = capitalize(fieldName);
         String methodName = isAssignableFrom(Boolean.class, field.getType()) ? format("is%s", fieldName)
                 : format("get%s", fieldName);
         Class<?> declaringClass = field.getDeclaringClass();
@@ -67,7 +66,7 @@ public final class ReflectionUtils {
         if (fieldName.startsWith("_")) {
             fieldName = fieldName.substring(1);
         }
-        fieldName = StringUtils.capitalize(fieldName);
+        fieldName = capitalize(fieldName);
         String methodName = format("set%s", fieldName);
         Class<?> declaringClass = field.getDeclaringClass();
         try {
