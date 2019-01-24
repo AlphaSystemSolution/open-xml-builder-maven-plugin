@@ -57,7 +57,11 @@ public class ClassGenerator {
     private JDefinedClass thisClass;
     private Map<String, PropertyInfo> classInfo = new LinkedHashMap<>();
 
-    public ClassGenerator(JCodeModel codeModel, JDefinedClass enclosingClass, Class<?> srcClass, String superClassName, String sourcePackageName,
+    public ClassGenerator(JCodeModel codeModel,
+                          JDefinedClass enclosingClass,
+                          Class<?> srcClass,
+                          String superClassName,
+                          String sourcePackageName,
                           JDefinedClass builderFactoryClass) {
         this.codeModel = codeModel;
         this.enclosingClass = enclosingClass;
@@ -99,7 +103,7 @@ public class ClassGenerator {
             method.body()._return(invoke(builderFactoryClass.staticRef(OBJECT_FACTORY_FIELD_NAME), getCreateMethodName(srcClass)));
 
             // add fluent API methods
-            classInfo.entrySet().forEach(entry -> processField(entry.getValue()));
+            classInfo.forEach((key, value) -> processField(value));
 
             if (enclosingClass == null) {
                 // add "get" method in builder class

@@ -1,5 +1,7 @@
 package com.alphasystem.openxml.mavenplugin;
 
+import org.apache.commons.lang3.ArrayUtils;
+
 import javax.xml.bind.annotation.XmlTransient;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -7,6 +9,7 @@ import java.lang.reflect.Modifier;
 import java.lang.reflect.ParameterizedType;
 import java.util.Collection;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 import static java.lang.String.format;
@@ -69,12 +72,38 @@ public final class ReflectionUtils {
         fieldName = capitalize(fieldName);
         String methodName = format("set%s", fieldName);
         Class<?> declaringClass = field.getDeclaringClass();
+        final Class<?> type = field.getType();
         try {
-            method = declaringClass.getDeclaredMethod(methodName, field.getType());
+            method = getSetterMethod(methodName, type, declaringClass);
         } catch (Exception e) {
-            // ignore
+            if (type.getName().equals(List.class.getName())) {
+                return null;
+            }
+            // find method with interface type
+            final Class<?>[] interfaces = type.getInterfaces();
+            if (!ArrayUtils.isEmpty(interfaces)) {
+                for (Class<?> anInterface : interfaces) {
+                    try {
+                        method = declaringClass.getDeclaredMethod(methodName, anInterface);
+                        if (method != null) {
+                            break;
+                        }
+                    } catch (NoSuchMethodException e1) {
+                        // ignore
+                    }
+                }
+            }
         }
         return method;
+    }
+
+    private static Method getSetterMethod(String methodName, Class<?> type, Class<?> declaringClass)
+            throws NoSuchMethodException, SecurityException {
+        try {
+            return declaringClass.getDeclaredMethod(methodName, type);
+        } catch (NoSuchMethodException e) {
+            return declaringClass.getDeclaredMethod(methodName, type.getSuperclass());
+        }
     }
 
     public static Map<String, PropertyInfo> inspectClass(Class<?> srcClass) {
