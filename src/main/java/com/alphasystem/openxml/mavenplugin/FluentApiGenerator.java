@@ -28,39 +28,35 @@ import static java.lang.String.format;
  */
 public class FluentApiGenerator {
 
-    public static final String GET_OBJECT_METHOD_NAME = "getObject";
-    public static final String SET_OBJECT_METHOD_NAME = "setObject";
-    public static final String PARAM_NAME = "value";
-    public static final String FIELD_NAME = "object";
-    public static final JFieldRef FIELD_TYPE_REF = ref(FIELD_NAME);
-    public static final String INITIALIZED_VARIABLE_NAME = "initialized";
-    public static final JFieldRef INITIALIZED_TYPE_REF = ref(INITIALIZED_VARIABLE_NAME);
-    public static final String CONTENT_PARA_NAME = "content";
-    public static final JFieldRef CONTENT_TYPE_REF = ref(CONTENT_PARA_NAME);
-    public static final String SRC_PARA_NAME = "src";
-    public static final JFieldRef SRC_TYPE_REF = ref(SRC_PARA_NAME);
-    public static final String CREATE_OBJECT_METHOD_NAME = "createObject";
-    public static final String HAS_CONTENT_MEHOD_NAME = "hasContent";
-    public static final String ADD_CONTENT_METHOD_NAME = "addContent";
-    public static final String OBJECT_FACTORY_FIELD_NAME = "OBJECT_FACTORY";
-    private static final String BASE_PACKAGE_NAME = "com.alphasystem.openxml.builder";
-    public static final String BUILDER_PACKAGE_NAME = format("%s.wml", BASE_PACKAGE_NAME);
-    private static final String SUPER_CALSS_FQN = format("%s.OpenXmlBuilder", BASE_PACKAGE_NAME);
-    private static final String BUILDER_FACTORY_CLASS_NAME = "WmlBuilderFactory";
-    private static final String BUILDER_FACTORY_CLASS_FQN = format("%s.%s", BUILDER_PACKAGE_NAME, BUILDER_FACTORY_CLASS_NAME);
-    public static final String CLONE_BOOLEAN_DEFAULT_TRUE_METHOD_NAME = "cloneBooleanDefaultTrue";
-    public static final String CLONE_BIG_INTEGER_METHOD_NAME = "cloneBigInteger";
-    public static final String CLONE_BOOLEAN_METHOD_NAME = "cloneBoolean";
-    public static final String CLONE_OBJECT_METHOD_NAME = "cloneObject";
+    static final String GET_OBJECT_METHOD_NAME = "getObject";
+    private static final String SET_OBJECT_METHOD_NAME = "setObject";
+    static final String PARAM_NAME = "value";
+    static final String FIELD_NAME = "object";
+    static final JFieldRef FIELD_TYPE_REF = ref(FIELD_NAME);
+    static final String INITIALIZED_VARIABLE_NAME = "initialized";
+    static final JFieldRef INITIALIZED_TYPE_REF = ref(INITIALIZED_VARIABLE_NAME);
+    private static final String CONTENT_PARA_NAME = "content";
+    private static final JFieldRef CONTENT_TYPE_REF = ref(CONTENT_PARA_NAME);
+    private static final String SRC_PARA_NAME = "src";
+    private static final JFieldRef SRC_TYPE_REF = ref(SRC_PARA_NAME);
+    static final String CREATE_OBJECT_METHOD_NAME = "createObject";
+    static final String HAS_CONTENT_MEHOD_NAME = "hasContent";
+    static final String ADD_CONTENT_METHOD_NAME = "addContent";
+    static final String OBJECT_FACTORY_FIELD_NAME = "OBJECT_FACTORY";
+    static final String CLONE_BOOLEAN_DEFAULT_TRUE_METHOD_NAME = "cloneBooleanDefaultTrue";
+    static final String CLONE_BIG_INTEGER_METHOD_NAME = "cloneBigInteger";
+    static final String CLONE_BOOLEAN_METHOD_NAME = "cloneBoolean";
+    static final String CLONE_OBJECT_METHOD_NAME = "cloneObject";
 
     public static void main(String[] args) {
         JCodeModel codeModel = new JCodeModel();
 
-        FluentApiGenerator apiGenerator = new FluentApiGenerator(codeModel, P.class, P.Hyperlink.class, Tbl.class,
-                Tr.class, Tc.class, R.class, Text.class, CTTabStop.class, Br.class, FldChar.class, SectPr.class,
-                TblGridCol.class, CTBookmarkRange.class, CTBookmark.class, BooleanDefaultFalse.class, Styles.class,
-                Style.class, Numbering.class, SdtBlock.class, CTSdtRow.class);
-        apiGenerator.generate();
+        FluentApiGenerator apiGenerator = new FluentApiGenerator(codeModel,
+                "com.alphasystem.openxml.builder", "wml", "WmlBuilderFactory",
+                P.class, P.Hyperlink.class, Tbl.class, Tr.class, Tc.class, R.class, Text.class, CTTabStop.class,
+                Br.class, FldChar.class, SectPr.class, TblGridCol.class, CTBookmarkRange.class, CTBookmark.class,
+                BooleanDefaultFalse.class, Styles.class, Style.class, Numbering.class, SdtBlock.class, CTSdtRow.class);
+        apiGenerator.generate("org.docx4j.wml");
 
         File destDir = new File("test");
         try {
@@ -78,31 +74,46 @@ public class FluentApiGenerator {
 
     }
 
-    public static String getBuilderClassFqn(Class<?> srcClass) {
-        return format("%s.%sBuilder", BUILDER_PACKAGE_NAME, getClassName(srcClass));
+    static String getBuilderClassFqn(Class<?> srcClass, String builderPackageName) {
+        return format("%s.%sBuilder", builderPackageName, getClassName(srcClass));
     }
 
-    public static String getInnerBuilderClassName(Class<?> srcClass) {
+    static String getInnerBuilderClassName(Class<?> srcClass) {
         return format("%sBuilder", srcClass.getSimpleName());
     }
 
-    public static String getBuilderClassFqn(Class<?> srcClass, String enclosingClassName, boolean innerType) {
+    static String getBuilderClassFqn(Class<?> srcClass,
+                                     String enclosingClassName,
+                                     String builderPackageName,
+                                     boolean innerType) {
         return innerType ? format("%s.%s", enclosingClassName, getInnerBuilderClassName(srcClass)) :
-                getBuilderClassFqn(srcClass);
+                getBuilderClassFqn(srcClass, builderPackageName);
     }
 
     private JCodeModel codeModel;
     private Class<?>[] srcClasses;
     private JDefinedClass openXmlBuilderClass;
     private JDefinedClass builderFactoryClass;
+    private String builderPackageName;
+    private String superClassFqn;
+    private String builderFactoryClassFqn;
 
-    public FluentApiGenerator(JCodeModel codeModel, Class<?>... srcClasses) {
+    public FluentApiGenerator(JCodeModel codeModel,
+                              String basePackageName,
+                              String builderType,
+                              String builderFactoryClassName,
+                              Class<?>... srcClasses) {
         this.codeModel = codeModel;
         this.srcClasses = srcClasses;
+        this.builderPackageName = format("%s.%s", basePackageName, builderType);
+        this.superClassFqn = format("%s.OpenXmlBuilder", basePackageName);
+        this.builderFactoryClassFqn = format("%s.%s", builderPackageName, builderFactoryClassName);
     }
 
     private JFieldVar addBuilderFactoryStaticField(Class<?> returnTypeClass,
-                                                   String fieldName, String builderMethodName, String valueMethodName,
+                                                   String fieldName,
+                                                   String builderMethodName,
+                                                   String valueMethodName,
                                                    JExpression arg) {
         JType returnType = parseType(codeModel, returnTypeClass.getName());
         return builderFactoryClass.field(PUBLIC | STATIC | FINAL, returnType,
@@ -121,23 +132,23 @@ public class FluentApiGenerator {
                 format("Constant for %s.%s", jcEnumerationClass.name(), name));
     }
 
-    public void generate() {
+    public void generate(String sourcePackageName) {
         generateOpenXmlBuilderClass();
         generateOpenXmlBuilderFactoryClass();
         for (Class<?> srcClass : srcClasses) {
-            generate(srcClass);
+            generate(srcClass, sourcePackageName);
         }
     }
 
-    protected JDefinedClass generate(Class<?> srcClass) {
+    private JDefinedClass generate(Class<?> srcClass, String sourcePackageName) {
         ClassGenerator classGenerator = new ClassGenerator(codeModel, null, srcClass, openXmlBuilderClass.fullName(),
-                "org.docx4j.wml", builderFactoryClass);
-        return classGenerator.generate();
+                sourcePackageName, builderFactoryClass);
+        return classGenerator.generate(builderPackageName);
     }
 
     private void generateOpenXmlBuilderClass() {
         try {
-            openXmlBuilderClass = codeModel._class(PUBLIC | ABSTRACT, SUPER_CALSS_FQN, CLASS);
+            openXmlBuilderClass = codeModel._class(PUBLIC | ABSTRACT, superClassFqn, CLASS);
             openXmlBuilderClass.generify("T");
             final JType t = parseType(codeModel, "T");
 
@@ -196,7 +207,7 @@ public class FluentApiGenerator {
 
     private void generateOpenXmlBuilderFactoryClass() {
         try {
-            builderFactoryClass = codeModel._class(PUBLIC, BUILDER_FACTORY_CLASS_FQN, CLASS);
+            builderFactoryClass = codeModel._class(PUBLIC, builderFactoryClassFqn, CLASS);
 
             builderFactoryClass.field(PUBLIC | STATIC | FINAL, parseType(codeModel, ObjectFactory.class.getName()),
                     OBJECT_FACTORY_FIELD_NAME, parseClass(codeModel, Context.class.getName()).staticInvoke("getWmlObjectFactory"));
@@ -262,7 +273,6 @@ public class FluentApiGenerator {
         final JCatchBlock catchBlock = tryBlock._catch(parseClass(codeModel, Exception.class));
         final JVar ex = catchBlock.param("ex");
         catchBlock.body().add(ex.invoke("printStackTrace"));
-
 
 
         body._return(target);

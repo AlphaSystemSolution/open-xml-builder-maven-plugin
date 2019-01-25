@@ -72,10 +72,10 @@ public class ClassGenerator {
         classInfo.putAll(inspectClass(this.srcClass));
     }
 
-    public JDefinedClass generate() {
+    public JDefinedClass generate(String builderPackageName) {
         try {
             if (enclosingClass == null) {
-                thisClass = codeModel._class(PUBLIC, getBuilderClassFqn(srcClass), CLASS);
+                thisClass = codeModel._class(PUBLIC, getBuilderClassFqn(srcClass, builderPackageName), CLASS);
             } else {
                 thisClass = enclosingClass._class(PUBLIC | STATIC, getInnerBuilderClassName(srcClass), CLASS);
             }
@@ -95,7 +95,7 @@ public class ClassGenerator {
             classesToIgnore.add(CTSdtRow.class.getName());
             // TODO: hack to avoid compilation error, need to figure out later
             if (!classesToIgnore.contains(srcClass.getName())) {
-                addCopyConstructor();
+                addCopyConstructor(builderPackageName);
             }
 
             // implement "createObject" method
@@ -103,7 +103,7 @@ public class ClassGenerator {
             method.body()._return(invoke(builderFactoryClass.staticRef(OBJECT_FACTORY_FIELD_NAME), getCreateMethodName(srcClass)));
 
             // add fluent API methods
-            classInfo.forEach((key, value) -> processField(value));
+            classInfo.forEach((key, value) -> processField(value, builderPackageName));
 
             if (enclosingClass == null) {
                 // add "get" method in builder class
@@ -132,7 +132,7 @@ public class ClassGenerator {
         constructorBody.invoke("super").arg(FIELD_TYPE_REF);
     }
 
-    private void addCopyConstructor() {
+    private void addCopyConstructor(String builderPackageName) {
         JMethod constructor = thisClass.constructor(PUBLIC);
 
         final JVar srcParam = constructor.param(srcClass, "src");
@@ -171,12 +171,12 @@ public class ClassGenerator {
                 if (Object.class.getName().equals(paramTypeName)) {
                     forBody.invoke(targetMethodName).arg(builderFactoryClass.staticInvoke(CLONE_OBJECT_METHOD_NAME).arg(var));
                 } else {
-                    String builderClassFqn = getBuilderClassFqn(paramType);
+                    String builderClassFqn = getBuilderClassFqn(paramType, builderPackageName);
                     final JInvocation builderArg = _new(parseClass(codeModel, builderClassFqn)).arg(var).arg(_null()).invoke(GET_OBJECT_METHOD_NAME);
                     forBody.invoke(targetMethodName).arg(builderArg);
                 }
             } else {
-                invocation = copyValue(propertyInfo, ifBlock, srcParam, paramType, invocation);
+                invocation = copyValue(propertyInfo, ifBlock, srcParam, paramType, invocation, builderPackageName);
             }
         }
 
@@ -185,7 +185,11 @@ public class ClassGenerator {
         }
     }
 
-    private JInvocation copyValue(PropertyInfo propertyInfo, JBlock ifBlock, JVar srcParam, Class<?> paramType, JInvocation invocation) {
+    private JInvocation copyValue(PropertyInfo propertyInfo,
+                                  JBlock ifBlock,
+                                  JVar srcParam, Class<?> paramType,
+                                  JInvocation invocation,
+                                  String builderPackageName) {
         final JClass thisType = parseClass(codeModel, paramType);
         final boolean sourcePackage = paramType.getPackage().getName().equals(sourcePackageName);
         final String paramTypeName = paramType.getName();
@@ -203,7 +207,7 @@ public class ClassGenerator {
         } else if (paramTypeName.equals(BigInteger.class.getName())) {
             var = builderFactoryClass.staticInvoke(CLONE_BIG_INTEGER_METHOD_NAME).arg(methodToInvoke);
         } else if (!paramType.isEnum() && sourcePackage) {
-            String builderClassFqn = getBuilderClassFqn(paramType, thisClass.name(), innerType);
+            String builderClassFqn = getBuilderClassFqn(paramType, thisClass.name(), builderPackageName, innerType);
             final JClass builderClass = parseClass(codeModel, builderClassFqn);
             final JVar localVar = ifBlock.decl(thisType, fieldName, methodToInvoke);
             final JBlock localIf = ifBlock._if(localVar.ne(_null()))._then();
@@ -257,7 +261,7 @@ public class ClassGenerator {
         return invocation;
     }
 
-    private void processField(PropertyInfo propertyInfo) {
+    private void processField(PropertyInfo propertyInfo, String builderPackageName) {
         final Field field = propertyInfo.getField();
         final boolean collectionType = isCollectionType(field);
         Method srcMethod = collectionType ? propertyInfo.getReadMethod() : propertyInfo.getWriteMethod();
@@ -308,10 +312,10 @@ public class ClassGenerator {
             // we are about to generate builder for any field with data type of our source package
             // but if the field is non collection type and an inner class then we will generate inner builder
             if (!collectionType && innerType) {
-                addInnerBuilder(paramType, targetMethodName, propertyInfo);
+                addInnerBuilder(paramType, targetMethodName, propertyInfo, builderPackageName);
             } else {
-                addOverloadMethod(propertyInfo, collectionType, targetMethodName, paramType);
-                generateChildBuilder(paramType);
+                addOverloadMethod(propertyInfo, collectionType, targetMethodName, paramType, builderPackageName);
+                generateChildBuilder(paramType, builderPackageName);
             }
         }
     }
@@ -324,8 +328,11 @@ public class ClassGenerator {
      * @param targetMethodName name of target method to invoke
      * @param paramType        type of current property
      */
-    private void addOverloadMethod(PropertyInfo propertyInfo, boolean collectionType, String targetMethodName,
-                                   Class<?> paramType) {
+    private void addOverloadMethod(PropertyInfo propertyInfo,
+                                   boolean collectionType,
+                                   String targetMethodName,
+                                   Class<?> paramType,
+                                   String builderPackageName) {
         final Map<String, PropertyInfo> map = ReflectionUtils.inspectClass(paramType);
         if (map.size() == 1) {
             PropertyInfo childPropertyInfo = null;
@@ -334,7 +341,7 @@ public class ClassGenerator {
                 break;
             }
             final Field childField = childPropertyInfo.getField();
-            final String childBuilderClassFqn = getBuilderClassFqn(paramType);
+            final String childBuilderClassFqn = getBuilderClassFqn(paramType, builderPackageName);
             final boolean childCollectionType = isCollectionType(childField);
             Class<?> childType = getParamType(childField, childCollectionType);
             String childPackageName = (childType == null) ? null : childType.getPackage().getName();
@@ -416,16 +423,19 @@ public class ClassGenerator {
         body._return(_this());
     }
 
-    private void generateChildBuilder(Class<?> paramType) {
+    private void generateChildBuilder(Class<?> paramType, String builderPackageName) {
         ClassGenerator generator = new ClassGenerator(codeModel, null, paramType, superClassName, sourcePackageName,
                 builderFactoryClass);
-        generator.generate();
+        generator.generate(builderPackageName);
     }
 
-    private void addInnerBuilder(Class<?> paramType, String targetMethodName, PropertyInfo pi) {
+    private void addInnerBuilder(Class<?> paramType,
+                                 String targetMethodName,
+                                 PropertyInfo pi,
+                                 String builderPackageName) {
         ClassGenerator generator = new ClassGenerator(codeModel, thisClass, paramType, superClassName,
                 sourcePackageName, builderFactoryClass);
-        final JDefinedClass innerClass = generator.generate();
+        final JDefinedClass innerClass = generator.generate(builderPackageName);
 
         // add this inner builder construction method
         final JFieldVar field = thisClass.field(PRIVATE, innerClass, uncapitalize(innerClass.name()));

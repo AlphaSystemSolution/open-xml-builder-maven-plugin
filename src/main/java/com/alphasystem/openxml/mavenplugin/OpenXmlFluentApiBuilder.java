@@ -27,6 +27,18 @@ public class OpenXmlFluentApiBuilder extends AbstractMojo {
     @Parameter(name = "targetDirectory", required = true, defaultValue = "${project.build.directory}/generated-sources/openxml")
     private File targetDirectory;
 
+    @Parameter(name = "sourcePackageName", required = true, defaultValue = "org.docx4j.wml")
+    private String sourcePackageName;
+
+    @Parameter(name = "basePackageName", required = true)
+    private String basePackageName;
+
+    @Parameter(name = "builderType", required = true, defaultValue = "wml")
+    private String builderType;
+
+    @Parameter(name = "builderFactoryClassName", required = true, defaultValue = "WmlBuilderFactory")
+    private String builderFactoryClassName;
+
     @Parameter(name = "srcClassNames")
     private List<String> srcClassNames;
 
@@ -44,13 +56,46 @@ public class OpenXmlFluentApiBuilder extends AbstractMojo {
 
     private void generate() {
         JCodeModel codeModel = new JCodeModel();
-        FluentApiGenerator apiGenerator = new FluentApiGenerator(codeModel, srcClasses);
-        apiGenerator.generate();
+        FluentApiGenerator apiGenerator = new FluentApiGenerator(codeModel,
+                basePackageName, builderType, builderFactoryClassName,srcClasses);
+        apiGenerator.generate(sourcePackageName);
         try {
             codeModel.build(targetDirectory);
         } catch (IOException e) {
             e.printStackTrace();
         }
+    }
+
+    public String getSourcePackageName() {
+        return sourcePackageName;
+    }
+
+    public void setSourcePackageName(String sourcePackageName) {
+        this.sourcePackageName = sourcePackageName;
+    }
+
+    public String getBasePackageName() {
+        return basePackageName;
+    }
+
+    public void setBasePackageName(String basePackageName) {
+        this.basePackageName = basePackageName;
+    }
+
+    public String getBuilderType() {
+        return builderType;
+    }
+
+    public void setBuilderType(String builderType) {
+        this.builderType = builderType;
+    }
+
+    public String getBuilderFactoryClassName() {
+        return builderFactoryClassName;
+    }
+
+    public void setBuilderFactoryClassName(String builderFactoryClassName) {
+        this.builderFactoryClassName = builderFactoryClassName;
     }
 
     public Class<?>[] getSrcClasses() {
